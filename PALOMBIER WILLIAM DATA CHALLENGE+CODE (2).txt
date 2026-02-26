@@ -1,0 +1,362 @@
+PALOMBIER WILLIAM
+
+Rapport DATA CHALLENGE avec l'annexe (contenant le code):
+
+Mon objectif a été de pouvoir faire des visualisations de tous les pays de l'UE par rapport au Covid 19!
+Pour cela, j'ai du intégrer "https://api.github.com/repos/CSSEGISandData/COVID-19/contents/csse_covid_19_data/csse_covid_19_daily_reports" pour pouvoir prendre en référence les données! J'ai mis en exergue 
+2 types de représentations: une représentant un graphique représentant tous les pays de l'UE
+#en fonction de l'épidémie du covid au cours du temps et l'autre un Dashboard avec divers visualisations
+telles qu'une carte choroplèthe permettant de voir une variations par rapport à la différence de cas,
+un graphique à barre, un camembert et pour finir un tableau de donnée! Etant donné que je voulais 
+m'intéresser qu'aux pays ayant le plus grand nombre de cas (prévalence), j'ai choisi alors les top 
+10 des pays de l'UE les plus touchés!
+Les difficultés concernées: problèmes pour bien uniformiser les données à travers les graphiques,
+éviter les doublons de valeurs concernant le graphique, éviter des nombres de cas dépassant le milliard 
+concernant la carte choroplèthe et surtout les doublons concernant les pays par rapport aux classements
+du tableau de données sans parler par le fais de bien homogénéiser et de bien structurer le tableau avec
+le module "children"!
+Concernant les librairies utilisées, j'ai pris comme référence "plotly.express" qui est un niveau élevé
+de "plotly" qui me permet de bien simplifier les graphiques (étant donné que je le maitrisais un peu 
+par rapport à mon père, je l'ai pris comme référence et je trouve cette librairie vraiment polyvalente)
+et "dash: un Framework plotly qui me permet de créer des applications web sans avoir la nécessité de bien 
+connaître HTML, CSS...
+Cela a été pour moi une épreuve difficile car je me suis mis beaucoup de challenge concernant mes dépassements
+de connaissance sur comment bien optimiser un tableau de bord en incluant pas mal de visualisations complexes
+et le fais de prendre en compte autant de données. Mais je ne peux qu'en être fier de mon travail même si ce n'est pas parfait car j'ai énormément appris sur le fait de se débrouiller à toruver des moyens efficaces et simples de
+pouvoir convertir autant de données.
+J'espère que vous appréciera mon travail et j'espère également que vous arriverez à les ouvrir sous format HTML
+même si vous pouvez les visualiser!
+
+
+#ANNEXE (contenant le code):
+
+#Représentation d'un graphique représentant tous les pays de l'UE
+#en fonction de l'épidémie du covid au cours du temps:
+
+import os
+import requests
+import pandas as pd
+from datetime import datetime
+import plotly.express as px
+from dash import Dash, dcc, html, Input, Output
+
+# Chemin des fichiers de données
+DATA_DIR = "covid_data"
+API_URL = "https://api.github.com/repos/CSSEGISandData/COVID-19/contents/csse_covid_19_data/csse_covid_19_daily_reports"
+
+# Liste des pays de l'Union Européenne
+EU_COUNTRIES = [
+    "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czechia", "Denmark",
+    "Estonia", "Finland", "France", "Germany", "Greece", "Hungary", "Ireland",
+    "Italy", "Latvia", "Lithuania", "Luxembourg", "Malta", "Netherlands",
+    "Poland", "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", "Sweden"
+]
+
+# Fonction pour télécharger les fichiers depuis GitHub
+def download_covid_data():
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+    
+    response = requests.get(API_URL)
+    response.raise_for_status()
+    files = response.json()
+    csv_files = [f for f in files if f['name'].endswith('.csv')]
+    
+    for file_info in csv_files:
+        file_url = file_info['download_url']
+        file_path = os.path.join(DATA_DIR, file_info['name'])
+        if not os.path.exists(file_path):
+            file_response = requests.get(file_url)
+            with open(file_path, 'wb') as f:
+                f.write(file_response.content)
+
+# Fonction pour convertir une date en gérant plusieurs formats
+def parse_date(date_str):
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+    return pd.NaT  # Retourne une valeur NaT si aucun format ne correspond
+
+# Fonction pour combiner les fichiers CSV en un seul DataFrame
+def combine_csv_files():
+    all_data = []
+    for file_name in os.listdir(DATA_DIR):
+        if file_name.endswith(".csv"):
+            file_path = os.path.join(DATA_DIR, file_name)
+            df = pd.read_csv(file_path)
+            if 'Country_Region' in df.columns and 'Confirmed' in df.columns:
+                df = df[['Last_Update', 'Country_Region', 'Confirmed']]
+                df.rename(columns={'Last_Update': 'Date', 'Country_Region': 'Country'}, inplace=True)
+                all_data.append(df)
+    
+    combined_df = pd.concat(all_data, ignore_index=True)
+    combined_df['Date'] = combined_df['Date'].apply(lambda x: parse_date(x) if isinstance(x, str) else pd.NaT)
+    combined_df = combined_df.dropna(subset=['Date'])
+    combined_df = combined_df.groupby(['Date', 'Country']).sum().reset_index()
+    return combined_df
+
+# Télécharger et préparer les données
+download_covid_data()
+df = combine_csv_files()
+
+# Filtrer les données pour les pays de l'UE
+df = df[df['Country'].isin(EU_COUNTRIES)]
+
+# Uniformiser les dates sans perdre de données
+df['Date'] = df['Date'].dt.strftime("%Y-%m-%d")  # Convertir au format uniforme
+
+# Extraire les années uniques
+df['Year'] = pd.to_datetime(df['Date']).dt.year
+years = sorted(df['Year'].dropna().unique())
+years.insert(0, 'All')  # Ajouter l'option "All"
+
+# Créer l'application Dash
+app = Dash(__name__)
+
+app.layout = html.Div([
+    html.H1("Évolution des cas confirmés de COVID-19 dans l'Union Européenne", style={'textAlign': 'center'}),
+    html.Label("Sélectionnez une année :", style={'fontSize': '18px'}),
+    dcc.Dropdown(
+        id='year-dropdown',
+        options=[{'label': str(year), 'value': year} for year in years],
+        value='All',
+        clearable=False
+    ),
+    dcc.Graph(id='covid-line-chart')
+])
+
+# Callback pour mettre à jour le graphique en fonction de l'année sélectionnée
+@app.callback(
+    Output('covid-line-chart', 'figure'),
+    [Input('year-dropdown', 'value')]
+)
+def update_graph(selected_year):
+    # Filtrer les données selon l'année sélectionnée
+    if selected_year != 'All':
+        filtered_df = df[df['Year'] == selected_year]
+    else:
+        filtered_df = df
+
+    # Créer le graphique
+    fig = px.line(
+        filtered_df,
+        x='Date',
+        y='Confirmed',
+        color='Country',
+        title=f"Cas confirmés COVID-19 dans l'UE ({selected_year})" if selected_year != 'All' else "Cas confirmés COVID-19 dans l'UE (Toutes les années)",
+        labels={'Confirmed': 'Cas Confirmés', 'Date': 'Date', 'Country': 'Pays'}
+    )
+    fig.update_layout(template="plotly_dark", xaxis_title="Date", yaxis_title="Cas Confirmés")
+    return fig
+
+# Lancer le serveur
+if __name__ == '__main__':
+    app.run_server(debug=True, port=8050)
+
+
+#Représentation d'un tableau de bord représentant les 10 pays de l'UE
+#ayant le plus grand nombre de prévalence ou de nombre de cas en mettant en exergue
+#une carte choroplète, un graphique à barre, un camembert précisant sur la représentation des parts de cas
+#et pour finir un tableau de donnée avec un classement des top 10 des pays ayant un taux de prévalence le plus élevé:
+
+import os
+import requests
+import pandas as pd
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+
+# Chemin des fichiers de données
+DATA_DIR = "covid_data"
+COMBINED_FILE = "combined_covid_data.csv"
+API_URL = "https://api.github.com/repos/CSSEGISandData/COVID-19/contents/csse_covid_19_data/csse_covid_19_daily_reports"
+
+# Liste des pays de l'Union Européenne
+EU_COUNTRIES = [
+    "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czechia", "Denmark",
+    "Estonia", "Finland", "France", "Germany", "Greece", "Hungary", "Ireland",
+    "Italy", "Latvia", "Lithuania", "Luxembourg", "Malta", "Netherlands",
+    "Poland", "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", "Sweden"
+]
+
+# Fonction pour télécharger les fichiers depuis GitHub
+def download_covid_data():
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+    
+    response = requests.get(API_URL)
+    response.raise_for_status()
+    files = response.json()
+    csv_files = [f for f in files if f['name'].endswith('.csv')]
+    
+    for file_info in csv_files:
+        file_path = os.path.join(DATA_DIR, file_info['name'])
+        if not os.path.exists(file_path):
+            file_response = requests.get(file_info['download_url'])
+            with open(file_path, 'wb') as f:
+                f.write(file_response.content)
+
+# Fonction pour combiner les fichiers CSV
+def combine_csv_files():
+    all_data = []
+    for file_name in os.listdir(DATA_DIR):
+        if file_name.endswith(".csv"):
+            file_path = os.path.join(DATA_DIR, file_name)
+            df = pd.read_csv(file_path)
+            if 'Country_Region' in df.columns and 'Confirmed' in df.columns:
+                df = df[['Last_Update', 'Country_Region', 'Confirmed', 'Lat', 'Long_']]
+                df.rename(columns={'Last_Update': 'Date', 'Country_Region': 'Country/Region'}, inplace=True)
+                all_data.append(df)
+    
+    combined_df = pd.concat(all_data, ignore_index=True)
+    combined_df['Date'] = pd.to_datetime(combined_df['Date'], errors='coerce')
+    combined_df = combined_df.dropna(subset=['Date'])
+    combined_df.to_csv(COMBINED_FILE, index=False)
+
+# Télécharger et préparer les données si nécessaire
+if not os.path.exists(COMBINED_FILE):
+    download_covid_data()
+    combine_csv_files()
+
+# Charger les données
+df = pd.read_csv(COMBINED_FILE)
+
+# Filtrer les pays de l'UE
+df = df[df['Country/Region'].isin(EU_COUNTRIES)]
+
+# Récupérer les dates disponibles
+available_dates = sorted(df['Date'].dropna().unique())
+
+# Initialiser l'application Dash
+app = dash.Dash(__name__)
+app.title = "Tableau de bord COVID-19 - Top 10 UE"
+
+# Styles globaux
+dark_theme = {
+    'background': '#111111',
+    'text': '#FFFFFF',
+    'accent': '#1DB954',
+    'grid': '#444444'
+}
+
+# Mise en page
+app.layout = html.Div(style={'backgroundColor': dark_theme['background'], 'padding': '20px'}, children=[
+    html.H1("Tableau de bord COVID-19 - Top 10 Pays de l'UE",
+            style={'textAlign': 'center', 'color': dark_theme['text'], 'fontSize': '36px'}),
+    html.Div([
+        html.Label("Sélectionnez une date :", style={'color': dark_theme['text'], 'fontSize': '18px'}),
+        dcc.Slider(
+            id='date-slider',
+            min=0,
+            max=len(available_dates) - 1,
+            value=len(available_dates) - 1,
+            marks={i: str(pd.to_datetime(date).date()) for i, date in enumerate(available_dates)},
+            step=1
+        )
+    ], style={'marginBottom': '30px'}),
+    html.Div([
+        dcc.Graph(id='choropleth-map', style={'height': '600px', 'width': '100%'})
+    ], style={'marginBottom': '30px'}),
+    html.Div([
+        html.Div([
+            dcc.Graph(id='bar-chart', style={'height': '500px'})
+        ], style={'width': '48%', 'display': 'inline-block', 'padding': '10px'}),
+        html.Div([
+            dcc.Graph(id='pie-chart', style={'height': '500px'})
+        ], style={'width': '48%', 'display': 'inline-block', 'padding': '10px'}),
+    ]),
+    html.Div(id='data-table', style={'overflowX': 'auto', 'paddingTop': '20px'})
+])
+
+# Callback pour la carte choroplète, les graphiques et les données
+@app.callback(
+    [Output('choropleth-map', 'figure'),
+     Output('bar-chart', 'figure'),
+     Output('pie-chart', 'figure'),
+     Output('data-table', 'children')],
+    [Input('date-slider', 'value')]
+)
+def update_dashboard(selected_date_index):
+    # Convertir l'index du curseur en date réelle
+    selected_date = available_dates[selected_date_index]
+    filtered_df = df[df['Date'] == selected_date]
+
+    # Classement des pays (Top 10 uniquement, sans doublons)
+    filtered_df = filtered_df.groupby('Country/Region', as_index=False).max()
+    filtered_df = filtered_df.nlargest(10, 'Confirmed')
+    filtered_df['Rank'] = range(1, len(filtered_df) + 1)
+
+    # Carte choroplète
+    choropleth_fig = px.choropleth(
+        filtered_df,
+        locations='Country/Region',
+        locationmode='country names',
+        color='Confirmed',
+        title=f"Top 10 des cas confirmés au {pd.to_datetime(selected_date).date()}",
+        labels={'Confirmed': 'Cas Confirmés'},
+        color_continuous_scale='YlOrRd',
+        template='plotly_dark'
+    )
+    choropleth_fig.update_geos(
+        showland=True, landcolor="#0d0d0d",
+        showocean=True, oceancolor="#1e1e1e",
+        showcountries=True, countrycolor=dark_theme['grid'],
+        projection_type="natural earth",
+        center={"lat": 50, "lon": 10},
+        lataxis_range=[35, 65],
+        lonaxis_range=[-25, 40]
+    )
+    choropleth_fig.update_layout(
+        margin=dict(l=0, r=0, t=50, b=0),
+        font=dict(color=dark_theme['text'])
+    )
+
+    # Graphique à barres
+    bar_chart_fig = px.bar(
+        filtered_df,
+        x='Country/Region',
+        y='Confirmed',
+        title=f"Distribution des cas confirmés au {pd.to_datetime(selected_date).date()}",
+        labels={'Confirmed': 'Cas Confirmés', 'Country/Region': 'Pays'},
+        template='plotly_dark',
+        color='Country/Region'
+    )
+    bar_chart_fig.update_layout(
+        margin=dict(l=0, r=0, t=50, b=50),
+        font=dict(color=dark_theme['text'])
+    )
+
+    # Camembert
+    pie_chart_fig = px.pie(
+        filtered_df,
+        values='Confirmed',
+        names='Country/Region',
+        title=f"Part des cas confirmés au {pd.to_datetime(selected_date).date()}",
+        template='plotly_dark'
+    )
+    pie_chart_fig.update_layout(
+        margin=dict(l=0, r=0, t=50, b=50),
+        font=dict(color=dark_theme['text'])
+    )
+
+    # Tableau des données
+    table = filtered_df[['Rank', 'Country/Region', 'Confirmed']].sort_values(by='Rank')
+    table_html = html.Table(
+        style={'width': '100%', 'color': dark_theme['text'], 'border': f"1px solid {dark_theme['grid']}"},
+        children=[
+            html.Thead(html.Tr([html.Th(col) for col in table.columns])),
+            html.Tbody([
+                html.Tr([html.Td(table.iloc[i][col]) for col in table.columns]) for i in range(len(table))
+            ])
+        ]
+    )
+
+    return choropleth_fig, bar_chart_fig, pie_chart_fig, table_html
+
+# Lancer l'application si ce fichier est exécuté directement
+if __name__ == '__main__':
+    app.run_server(debug=True, port=8051)
+
